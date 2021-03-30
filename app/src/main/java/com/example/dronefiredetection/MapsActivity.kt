@@ -1,43 +1,176 @@
 package com.example.dronefiredetection
 
-import androidx.appcompat.app.AppCompatActivity
+import android.R
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Looper
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import dji.common.error.DJIError
+import dji.common.error.DJISDKError
+import dji.sdk.base.BaseComponent
+import dji.sdk.base.BaseProduct
+import dji.sdk.base.BaseProduct.ComponentKey
+import dji.sdk.sdkmanager.DJISDKInitEvent
+import dji.sdk.sdkmanager.DJISDKManager
+import dji.sdk.sdkmanager.DJISDKManager.SDKManagerCallback
 
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.OnMapReadyCallback
-import com.google.android.gms.maps.SupportMapFragment
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.MarkerOptions
 
-class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
+class MapsActivity : AppCompatActivity() {
 
-    private lateinit var mMap: GoogleMap
+
+//    override fun onCreate(savedInstanceState: Bundle?) {
+//        super.onCreate(savedInstanceState)
+//        setContentView(R.layout.activity_maps)
+//    }
+
+    private var mHandler: Handler? = null
+    private val missingPermission: MutableList<String> = ArrayList()
+    private val isRegistrationInProgress: AtomicBoolean = AtomicBoolean(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // When the compile and target version is higher than 22, please request the following permission at runtime to ensure the SDK works well.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            checkAndRequestPermissions()
+        }
         setContentView(R.layout.activity_maps)
-        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
-        val mapFragment = supportFragmentManager
-                .findFragmentById(R.id.map) as SupportMapFragment
-        mapFragment.getMapAsync(this)
+
+        //Initialize DJI SDK Manager
+        mHandler = Handler(Looper.getMainLooper())
     }
 
     /**
-     * Manipulates the map once available.
-     * This callback is triggered when the map is ready to be used.
-     * This is where we can add markers or lines, add listeners or move the camera. In this case,
-     * we just add a marker near Sydney, Australia.
-     * If Google Play services is not installed on the device, the user will be prompted to install
-     * it inside the SupportMapFragment. This method will only be triggered once the user has
-     * installed Google Play services and returned to the app.
+     * Checks if there is any missing permissions, and
+     * requests runtime permission if needed.
      */
-    override fun onMapReady(googleMap: GoogleMap) {
-        mMap = googleMap
-
-        // Add a marker in Sydney and move the camera
-        val sydney = LatLng(-34.0, 151.0)
-        mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
+    private fun checkAndRequestPermissions() {
+        // Check for permissions
+        for (eachPermission in REQUIRED_PERMISSION_LIST) {
+            if (ContextCompat.checkSelfPermission(this, eachPermission) != PackageManager.PERMISSION_GRANTED) {
+                missingPermission.add(eachPermission)
+            }
+        }
+        // Request for missing permissions
+        if (missingPermission.isEmpty()) {
+            startSDKRegistration()
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            showToast("Need to grant the permissions!")
+            ActivityCompat.requestPermissions(this,
+                    missingPermission.toTypedArray(),
+                    REQUEST_PERMISSION_CODE)
+        }
     }
+
+    /**
+     * Result of runtime permission request
+     */
+    override fun onRequestPermissionsResult(requestCode: Int,
+                                            permissions: Array<String>,
+                                            grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Check for granted permission and remove from missing list
+        if (requestCode == REQUEST_PERMISSION_CODE) {
+            for (i in grantResults.indices.reversed()) {
+                if (grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    missingPermission.remove(permissions[i])
+                }
+            }
+        }
+        // If there is enough permission, we will start the registration
+        if (missingPermission.isEmpty()) {
+            startSDKRegistration()
+        } else {
+            showToast("Missing permissions!!!")
+        }
+    }
+
+    private fun startSDKRegistration() {
+        if (isRegistrationInProgress.compareAndSet(false, true)) {
+            AsyncTask.execute(Runnable {
+                showToast("registering, pls wait...")
+                DJISDKManager.getInstance().registerApp(this@MapsActivity.getApplicationContext(), object : SDKManagerCallback {
+                    override fun onRegister(djiError: DJIError) {
+                        if (djiError === DJISDKError.REGISTRATION_SUCCESS) {
+                            showToast("Register Success")
+                            DJISDKManager.getInstance().startConnectionToProduct()
+                        } else {
+                            showToast("Register sdk fails, please check the bundle id and network connection!")
+                        }
+                        Log.v(FragmentActivity.TAG, djiError.getDescription())
+                    }
+
+                    override fun onProductDisconnect() {
+                        Log.d(FragmentActivity.TAG, "onProductDisconnect")
+                        showToast("Product Disconnected")
+                        notifyStatusChange()
+                    }
+
+                    override fun onProductConnect(baseProduct: BaseProduct) {
+                        Log.d(FragmentActivity.TAG, String.format("onProductConnect newProduct:%s", baseProduct))
+                        showToast("Product Connected")
+                        notifyStatusChange()
+                    }
+
+                    override fun onComponentChange(componentKey: ComponentKey, oldComponent: BaseComponent,
+                                                   newComponent: BaseComponent) {
+                        newComponent?.setComponentListener { isConnected ->
+                            Log.d(FragmentActivity.TAG, "onComponentConnectivityChanged: $isConnected")
+                            notifyStatusChange()
+                        }
+                        Log.d(FragmentActivity.TAG, String.format("onComponentChange key:%s, oldComponent:%s, newComponent:%s",
+                                componentKey,
+                                oldComponent,
+                                newComponent))
+                    }
+
+                    override fun onInitProcess(djisdkInitEvent: DJISDKInitEvent, i: Int) {}
+                    override fun onDatabaseDownloadProgress(l: Long, l1: Long) {}
+                })
+            })
+        }
+    }
+
+    private fun notifyStatusChange() {
+        mHandler.removeCallbacks(updateRunnable)
+        mHandler.postDelayed(updateRunnable, 500)
+    }
+
+    private val updateRunnable = Runnable {
+        val intent = Intent(FLAG_CONNECTION_CHANGE)
+        sendBroadcast(intent)
+    }
+
+    private fun showToast(toastMsg: String) {
+        val handler = Handler(Looper.getMainLooper())
+        handler.post(Runnable { Toast.makeText(applicationContext, toastMsg, Toast.LENGTH_LONG).show() })
+    }
+
+    companion object {
+        private val TAG = MapsActivity::class.java.name
+        const val FLAG_CONNECTION_CHANGE = "dji_sdk_connection_change"
+        private val mProduct: BaseProduct? = null
+        private val REQUIRED_PERMISSION_LIST = arrayOf<String>(
+                Manifest.permission.VIBRATE,
+                Manifest.permission.INTERNET,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.WAKE_LOCK,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_NETWORK_STATE,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.CHANGE_WIFI_STATE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.READ_PHONE_STATE)
+        private const val REQUEST_PERMISSION_CODE = 12345
+    }
+
 }
