@@ -1,11 +1,14 @@
 package com.example.dronefiredetection
 
+import android.Manifest
 import android.R
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -19,6 +22,8 @@ import dji.sdk.base.BaseProduct.ComponentKey
 import dji.sdk.sdkmanager.DJISDKInitEvent
 import dji.sdk.sdkmanager.DJISDKManager
 import dji.sdk.sdkmanager.DJISDKManager.SDKManagerCallback
+import dji.thirdparty.afinal.core.AsyncTask
+import java.util.concurrent.atomic.AtomicBoolean
 
 
 class MapsActivity : AppCompatActivity() {
@@ -32,6 +37,7 @@ class MapsActivity : AppCompatActivity() {
     private var mHandler: Handler? = null
     private val missingPermission: MutableList<String> = ArrayList()
     private val isRegistrationInProgress: AtomicBoolean = AtomicBoolean(false)
+    private val TAG: String = MapsActivity.javaClass.simpleName;
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,17 +109,17 @@ class MapsActivity : AppCompatActivity() {
                         } else {
                             showToast("Register sdk fails, please check the bundle id and network connection!")
                         }
-                        Log.v(FragmentActivity.TAG, djiError.getDescription())
+                        Log.v(TAG, djiError.getDescription())
                     }
 
                     override fun onProductDisconnect() {
-                        Log.d(FragmentActivity.TAG, "onProductDisconnect")
+                        Log.d(TAG, "onProductDisconnect")
                         showToast("Product Disconnected")
                         notifyStatusChange()
                     }
 
                     override fun onProductConnect(baseProduct: BaseProduct) {
-                        Log.d(FragmentActivity.TAG, String.format("onProductConnect newProduct:%s", baseProduct))
+                        Log.d(TAG, String.format("onProductConnect newProduct:%s", baseProduct))
                         showToast("Product Connected")
                         notifyStatusChange()
                     }
@@ -121,10 +127,10 @@ class MapsActivity : AppCompatActivity() {
                     override fun onComponentChange(componentKey: ComponentKey, oldComponent: BaseComponent,
                                                    newComponent: BaseComponent) {
                         newComponent?.setComponentListener { isConnected ->
-                            Log.d(FragmentActivity.TAG, "onComponentConnectivityChanged: $isConnected")
+                            Log.d(TAG, "onComponentConnectivityChanged: $isConnected")
                             notifyStatusChange()
                         }
-                        Log.d(FragmentActivity.TAG, String.format("onComponentChange key:%s, oldComponent:%s, newComponent:%s",
+                        Log.d(TAG, String.format("onComponentChange key:%s, oldComponent:%s, newComponent:%s",
                                 componentKey,
                                 oldComponent,
                                 newComponent))
@@ -138,8 +144,8 @@ class MapsActivity : AppCompatActivity() {
     }
 
     private fun notifyStatusChange() {
-        mHandler.removeCallbacks(updateRunnable)
-        mHandler.postDelayed(updateRunnable, 500)
+        mHandler?.removeCallbacks(updateRunnable)
+        mHandler?.postDelayed(updateRunnable, 500)
     }
 
     private val updateRunnable = Runnable {
