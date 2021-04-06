@@ -1,7 +1,6 @@
 package com.example.dronefiredetection
 
 import android.Manifest
-import android.R
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -137,6 +136,10 @@ class MapsActivity : AppCompatActivity() {
                     }
 
                     override fun onInitProcess(djisdkInitEvent: DJISDKInitEvent, i: Int) {}
+                    override fun onProductChanged(p0: BaseProduct?) {
+                        notifyStatusChange();
+                    }
+
                     override fun onDatabaseDownloadProgress(l: Long, l1: Long) {}
                 })
             })
@@ -162,6 +165,7 @@ class MapsActivity : AppCompatActivity() {
         private val TAG = MapsActivity::class.java.name
         const val FLAG_CONNECTION_CHANGE = "dji_sdk_connection_change"
         private val mProduct: BaseProduct? = null
+        // We may need to remove some of these. It particularly did not like wake lock, but that could be on the emulator only
         private val REQUIRED_PERMISSION_LIST = arrayOf<String>(
                 Manifest.permission.VIBRATE,
                 Manifest.permission.INTERNET,
